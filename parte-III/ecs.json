@@ -1,0 +1,404 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "ECS + Docker",
+    "Metadata": {},
+    "Parameters": {
+        "vpcId": {
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "vpc id"
+        },
+        "subnetPublica1": {
+            "Type": "AWS::EC2::Subnet::Id",
+            "Description": "red publica 1"
+        },
+        "keyNamePair": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "keypair para conexion SSH a instancias EC2 del cluster ECS"
+        },
+        "urlBD": {
+            "Type": "String",
+            "Description": "URL base datos RDS"
+        },
+        "database": {
+            "Type": "String",
+            "Description": "nombre de la base de datos"
+        },
+        "portBD": {
+            "Type": "String",
+            "Description": "puerto base de datos",
+            "Default": "3306"
+        },
+        "usernameBD": {
+            "Type": "String",
+            "Description": "usuario conexion a base de datos"
+        },
+        "passwordBD": {
+            "Type": "String",
+            "Description": "password conexion a base de datos"
+        },
+        "capacidadDeseadaECS": {
+            "Type": "Number",
+            "Description": "cantidad de EC2 para el cluster ECS"
+        },
+        "tipoDeInstancia": {
+            "Type": "String",
+            "Description": "Ingresar el tipo de instancia EC2",
+            "Default": "t2.micro"
+        }
+    },
+    "Mappings": {
+        "AWSRegionToAMI": {
+            "us-east-1": {
+                "AMIID": "ami-eca289fb"
+            },
+            "us-east-2": {
+                "AMIID": "ami-446f3521"
+            }
+        }
+    },
+    "Conditions": {},
+    "Resources": {
+        "myClusterECS": {
+            "Type": "AWS::ECS::Cluster"
+        },
+        "ecsAutoScalingGroup": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "VPCZoneIdentifier": [
+                    {
+                        "Ref": "subnetPublica1"
+                    }
+                ],
+                "LaunchConfigurationName": {
+                    "Ref": "containerInstances"
+                },
+                "MinSize": "0",
+                "MaxSize": "4",
+                "DesiredCapacity": {
+                    "Ref": "capacidadDeseadaECS"
+                }
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Timeout": "PT15M"
+                }
+            },
+            "UpdatePolicy": {
+                "AutoScalingReplacingUpdate": {
+                    "WillReplace": "true"
+                }
+            }
+        },
+        "containerInstances": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Properties": {
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "AWSRegionToAMI",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIID"
+                    ]
+                },
+                "SecurityGroups": [
+                    {
+                        "Fn::ImportValue": "infraestructura-sgApiECS"
+                    }
+                ],
+                "InstanceType": {
+                    "Ref": "tipoDeInstancia"
+                },
+                "IamInstanceProfile": {
+                    "Ref": "instanceProfileEC2"
+                },
+                "KeyName": {
+                    "Ref": "keyNamePair"
+                },
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "#!/bin/bash -xe\n",
+                                "echo ECS_CLUSTER=",
+                                {
+                                    "Ref": "myClusterECS"
+                                },
+                                " >> /etc/ecs/ecs.config\n",
+                                "yum install -y aws-cfn-bootstrap\n",
+                                "/opt/aws/bin/cfn-signal -e $? ",
+                                "         --stack ",
+                                {
+                                    "Ref": "AWS::StackName"
+                                },
+                                "         --resource ecsAutoScalingGroup ",
+                                "         --region ",
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "\n"
+                            ]
+                        ]
+                    }
+                }
+            }
+        },
+        "instanceProfileEC2": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [
+                    {
+                        "Ref": "ecsRoleEC2"
+                    }
+                ]
+            }
+        },
+        "ecsRoleEC2": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ec2.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "ecs-service",
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ecs:CreateCluster",
+                                        "ecs:DeregisterContainerInstance",
+                                        "ecs:DiscoverPollEndpoint",
+                                        "ecs:Poll",
+                                        "ecs:RegisterContainerInstance",
+                                        "ecs:StartTelemetrySession",
+                                        "ecs:Submit*",
+                                        "ecr:GetAuthorizationToken",
+                                        "ecr:BatchCheckLayerAvailability",
+                                        "ecr:GetDownloadUrlForLayer",
+                                        "ecr:BatchGetImage",
+                                        "logs:CreateLogStream",
+                                        "logs:PutLogEvents"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "ecsServiceRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ecs.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "ecs-service",
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+                                        "elasticloadbalancing:DeregisterTargets",
+                                        "elasticloadbalancing:Describe*",
+                                        "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+                                        "elasticloadbalancing:RegisterTargets",
+                                        "ec2:Describe*",
+                                        "ec2:AuthorizeSecurityGroupIngress"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "cloudwatchLogsGroup": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+                "LogGroupName": "ninja-log-group",
+                "RetentionInDays": 1
+            }
+        },
+        "taskApiPersonaPreferencia": {
+            "Type": "AWS::ECS::TaskDefinition",
+            "Properties": {
+                "Family": "apiPersonaPreferencia",
+                "ContainerDefinitions": [
+                    {
+                        "Name": "apiPersona",
+                        "Essential": "true",
+                        "Image": "registry.hub.docker.com/wjma90/ninja-apipersona:latest",
+                        "MemoryReservation": 128,
+                        "LogConfiguration": {
+                            "LogDriver": "awslogs",
+                            "Options": {
+                                "awslogs-group": {
+                                    "Ref": "cloudwatchLogsGroup"
+                                },
+                                "awslogs-region": {
+                                    "Ref": "AWS::Region"
+                                },
+                                "awslogs-stream-prefix": "apiPersona"
+                            }
+                        },
+                        "PortMappings": [
+                            {
+                                "ContainerPort": 8080,
+                                "HostPort": 0
+                            }
+                        ],
+                        "Environment": [
+                            {
+                                "Name": "host",
+                                "Value": {
+                                    "Ref": "urlBD"
+                                }
+                            },
+                            {
+                                "Name": "database",
+                                "Value": {
+                                    "Ref": "database"
+                                }
+                            },
+                            {
+                                "Name": "username",
+                                "Value": {
+                                    "Ref": "usernameBD"
+                                }
+                            },
+                            {
+                                "Name": "password",
+                                "Value": {
+                                    "Ref": "passwordBD"
+                                }
+                            },
+                            {
+                                "Name": "port",
+                                "Value": {
+                                    "Ref": "portBD"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "apiPreferencia",
+                        "Essential": "true",
+                        "Image": "registry.hub.docker.com/wjma90/ninja-apipreferencia:latest",
+                        "MemoryReservation": 128,
+                        "LogConfiguration": {
+                            "LogDriver": "awslogs",
+                            "Options": {
+                                "awslogs-group": {
+                                    "Ref": "cloudwatchLogsGroup"
+                                },
+                                "awslogs-region": {
+                                    "Ref": "AWS::Region"
+                                },
+                                "awslogs-stream-prefix": "apiPreferencia"
+                            }
+                        },
+                        "PortMappings": [
+                            {
+                                "ContainerPort": 8080,
+                                "HostPort": 0
+                            }
+                        ],
+                        "Links": ["apiPersona:apiPersona"],
+                        "Environment": [
+                            {
+                                "Name": "url_apipersona",
+                                "Value": "apiPersona"
+                            },
+                            {
+                                "Name": "port_apipersona",
+                                "Value": "8080"
+                            },
+                            {
+                                "Name": "host",
+                                "Value": {
+                                    "Ref": "urlBD"
+                                }
+                            },
+                            {
+                                "Name": "database",
+                                "Value": {
+                                    "Ref": "database"
+                                }
+                            },
+                            {
+                                "Name": "username",
+                                "Value": {
+                                    "Ref": "usernameBD"
+                                }
+                            },
+                            {
+                                "Name": "password",
+                                "Value": {
+                                    "Ref": "passwordBD"
+                                }
+                            },
+                            {
+                                "Name": "port",
+                                "Value": {
+                                    "Ref": "portBD"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        "apiPersonaPreferenciaService": {
+            "Type": "AWS::ECS::Service",
+            "DependsOn": [
+                "ecsAutoScalingGroup"
+            ],
+            "Properties": {
+                "ServiceName": "srvApiPersonaPreferencia",
+                "Cluster": {
+                    "Ref": "myClusterECS"
+                },
+                "DesiredCount": "1",
+                "TaskDefinition": {
+                    "Ref": "taskApiPersonaPreferencia"
+                }
+            }
+        }
+    },
+    "Outputs": {}
+}

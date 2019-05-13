@@ -1,0 +1,94 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "EC2 Bastion",
+    "Metadata": {},
+    "Parameters": {
+        "KeyPairName": {
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "Description": "Archivo para conexion a EC2",
+            "ConstraintDescription": "Debe existir previamente un archivo keypair"
+        },
+        "subnetPublica1":{
+            "Type":"AWS::EC2::Subnet::Id",
+            "Description": "red publica para bastion"
+        },
+        "tipoDeInstancia": {
+            "Type": "String",
+            "Description": "Ingresar el tipo de instancia EC2",
+            "Default": "t2.micro"
+        },
+        "sgBastion": {
+            "Type": "AWS::EC2::SecurityGroup::Id",
+            "Description": "firewall para ec2 bastion"
+        }
+    },
+    "Mappings": {
+        "AWSRegionToAMI": {
+            "us-east-1": {
+                "AMIID": "ami-0080e4c5bc078760e"
+            },
+            "us-east-2": {
+                "AMIID": "ami-0cd3dfa4e37921605"
+            }
+        }
+    },
+    "Conditions": {},
+    "Resources": {
+        "myBastion": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "ImageId": {
+                    "Fn::FindInMap": [
+                        "AWSRegionToAMI",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "AMIID"
+                    ]
+                },
+                "KeyName": {
+                    "Ref": "KeyPairName"
+                },
+                "InstanceType": {"Ref":"tipoDeInstancia"},
+                "SubnetId": {
+                    "Ref": "subnetPublica1"
+                },
+                "SecurityGroupIds": [
+                    {
+                        "Ref": "sgBastion"
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "\n",
+                            [
+                                "#!/bin/bash -xe",
+                                "yum update -y",
+                                "yum upgrade -y",
+                                "yum install mysql -y"
+                            ]
+                        ]
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Bastion"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "dnsBastion": {
+            "Description": "DNS EC2 Bastion",
+            "Value": {
+                "Fn::GetAtt": [
+                    "myBastion",
+                    "PublicDnsName"
+                ]
+            }
+        }
+    }
+}

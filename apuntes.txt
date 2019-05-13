@@ -1,0 +1,3 @@
+http://localhost:PORT/api/personas/find/2
+
+http://localhost:PORT/api/preferencias/persona/2

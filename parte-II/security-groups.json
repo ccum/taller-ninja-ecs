@@ -1,0 +1,187 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Security Groups",
+    "Metadata": {},
+    "Parameters": {
+        "idVPC": {
+            "Type": "AWS::EC2::VPC::Id"
+        },
+        "cidrBlockVPC": {
+            "Type": "String"
+        }
+    },
+    "Mappings": {},
+    "Conditions": {},
+    "Resources": {
+        "ruleInBastionToMysqlRDS": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "Description" : "IN RULE - permite trafico mysql bastion",
+                "GroupId": {
+                    "Ref": "sgMysqlRDS"
+                },
+                "IpProtocol": "tcp",
+                "FromPort": "3306",
+                "ToPort": "3306",
+                "SourceSecurityGroupId": {
+                    "Ref": "sgBastion"
+                }
+            }
+        },
+        "ruleInECSToMysqlRDS": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "Description" : "IN RULE - permite trafico desde los contenedores hacia mysql",
+                "GroupId": {
+                    "Ref": "sgMysqlRDS"
+                },
+                "IpProtocol": "tcp",
+                "FromPort": "3306",
+                "ToPort": "3306",
+                "SourceSecurityGroupId": {
+                    "Ref": "sgApiECS"
+                }
+            }
+        },
+        "ruleInBalanceadorToTargetsECS": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "Description" : "IN RULE - permite trafico a targets groups ecs",
+                "GroupId": {
+                    "Ref": "sgApiECS"
+                },
+                "IpProtocol": "tcp",
+                "FromPort": "31000",
+                "ToPort": "61000",
+                "CidrIp" : "0.0.0.0/0"
+            }
+        },
+        "ruleInSSHToTargetsECS": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "Description" : "IN RULE - permite trafico a targets groups ecs",
+                "GroupId": {
+                    "Ref": "sgApiECS"
+                },
+                "IpProtocol": "tcp",
+                "FromPort": "22",
+                "ToPort": "22",
+                "CidrIp" : "0.0.0.0/0"
+            }
+        },
+        "sgApiECS": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Permite trafico hacia los target groups ecs (viceversa)",
+                "VpcId": {
+                    "Ref": "idVPC"
+                },
+                "SecurityGroupIngress": [],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": "-1",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "sgApiECS"
+                    }
+                ]
+            }
+        },
+        "sgBastion": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Seguridad para EC2 Bastion",
+                "VpcId": {
+                    "Ref": "idVPC"
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "TCP",
+                        "FromPort": "22",
+                        "ToPort": "22",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": "-1",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "sgBastion"
+                    }
+                ]
+            }
+        },
+        "sgMysqlRDS": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "seguridad para Mysql RDS",
+                "VpcId": {
+                    "Ref": "idVPC"
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "TCP",
+                        "FromPort": "3306",
+                        "ToPort": "3306",
+                        "CidrIp": {
+                            "Ref": "cidrBlockVPC"
+                        }
+                    }
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": "-1",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "sgMysqlRDS"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "sgMysqlRDS": {
+            "Description": "Security Group de la base de datos",
+            "Value": {
+                "Fn::GetAtt": [
+                    "sgMysqlRDS",
+                    "GroupId"
+                ]
+            },
+            "Export" : { "Name" : { "Fn::Sub" : "infraestructura-sgMysqlRDS" } }
+        },
+        "sgBastion": {
+            "Description": "Security Group de la ec2 bastion",
+            "Value": {
+                "Fn::GetAtt": [
+                    "sgBastion",
+                    "GroupId"
+                ]
+            },
+            "Export" : { "Name" : { "Fn::Sub" : "infraestructura-sgBastion" } }
+        },
+        "sgApiECS": {
+            "Description": "Security Group de targets ecs",
+            "Value": {
+                "Fn::GetAtt": [
+                    "sgApiECS",
+                    "GroupId"
+                ]
+            },
+            "Export" : { "Name" : { "Fn::Sub" : "infraestructura-sgApiECS" } }
+        }
+    }
+}
